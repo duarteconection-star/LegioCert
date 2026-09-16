@@ -1,10 +1,12 @@
 /**
- * LegioCert Pro - Módulo de Tratamientos
+ * LegioCert Pro - Módulo de Tratamientos v3
+ * Campos actualizados según certificado oficial RD 487/2022
  */
 const LegionellaModule = (() => {
   let currentTratamiento = null;
   let timerInterval = null;
   let _timerSeconds = 0;
+  let medidas = [];
 
   const render = (params={}) => `
     <div class="module-header"><h2><i class="icon">🧪</i> Nuevo Tratamiento</h2></div>
@@ -15,14 +17,14 @@ const LegionellaModule = (() => {
           <div class="form-group"><label>Cliente *</label><select id="t_clienteId" onchange="LegionellaModule.onClienteChange(this.value)"><option value="">Seleccionar cliente…</option></select></div>
           <div class="form-group"><label>Instalación *</label><select id="t_instalacionId"><option value="">Primero selecciona cliente</option></select></div>
           <div class="form-group"><label>Fecha *</label><input type="date" id="t_fecha"></div>
-          <div class="form-group"><label>Técnico</label><input type="text" id="t_tecnico" placeholder="Nombre del técnico"></div>
-          <div class="form-group"><label>Tipo de tratamiento</label>
-            <select id="t_tipo">
-              <option value="mantenimiento">Mantenimiento preventivo</option>
-              <option value="desinfeccion">Desinfección</option>
-              <option value="choque">Choque por positivo Legionella</option>
-              <option value="revision">Revisión</option>
-              <option value="muestreo">Toma de muestras</option>
+          <div class="form-group"><label>Nombre del circuito</label><input type="text" id="t_circuito" placeholder="Ej: Red ACS planta baja"></div>
+          <div class="form-group"><label>Motivo del tratamiento</label>
+            <select id="t_motivo">
+              <option value="mantenimiento">Mantenimiento programado</option>
+              <option value="aislamiento">Aislamiento de Legionella</option>
+              <option value="correctora">Medida correctora</option>
+              <option value="brote">Brote / Caso</option>
+              <option value="otro">Otro</option>
             </select>
           </div>
           <div class="form-group"><label>Normativa</label>
@@ -35,10 +37,54 @@ const LegionellaModule = (() => {
         </div>
       </div>
       <div class="form-section">
+        <h3 class="section-title">👷 Datos del Técnico Aplicador</h3>
+        <div class="form-grid">
+          <div class="form-group"><label>Nombre del técnico</label><input type="text" id="t_tecnico" placeholder="Nombre completo"></div>
+          <div class="form-group"><label>DNI del técnico</label><input type="text" id="t_tecnicoDni" placeholder="12345678X"></div>
+          <div class="form-group form-full"><label>Titulación / Acreditación</label><input type="text" id="t_tecnicoTitulacion" placeholder="Ej: Curso mantenimiento higiénico-sanitario Legionella 2022"></div>
+          <div class="form-group"><label>Responsable técnico</label><input type="text" id="t_responsable" placeholder="Nombre del responsable técnico"></div>
+          <div class="form-group"><label>DNI responsable técnico</label><input type="text" id="t_responsableDni" placeholder="12345678X"></div>
+          <div class="form-group form-full"><label>Titulación responsable técnico</label><input type="text" id="t_responsableTitulacion" placeholder="Ej: Curso segunda actualización Legionella 2022"></div>
+        </div>
+      </div>
+      <div class="form-section">
+        <h3 class="section-title">🏗️ Estado de la Instalación</h3>
+        <div class="form-grid">
+          <div class="form-group"><label>Estado de conservación</label>
+            <select id="t_estadoConservacion">
+              <option value="correcto">Correcto</option>
+              <option value="corrosion">Con corrosión</option>
+              <option value="incrustaciones">Con incrustaciones / biocapa / algas</option>
+              <option value="deficiente">Deficiente</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Notificada a autoridad competente</label>
+            <select id="t_notificada"><option value="no">No</option><option value="si">Sí</option></select>
+          </div>
+          <div class="form-group"><label>Fecha de notificación</label><input type="date" id="t_fechaNotificacion"></div>
+          <div class="form-group"><label>Plano esquema hidráulico actualizado</label>
+            <select id="t_planoHidraulico"><option value="no">No</option><option value="si">Sí</option></select>
+          </div>
+          <div class="form-group"><label>Se ha parado la instalación</label>
+            <select id="t_paradaInstalacion"><option value="si">Sí</option><option value="no">No</option><option value="parcialmente">Parcialmente</option></select>
+          </div>
+          <div class="form-group"><label>Se ha vaciado previamente</label>
+            <select id="t_vaciado"><option value="si">Sí</option><option value="no">No</option><option value="parcialmente">Parcialmente</option></select>
+          </div>
+          <div class="form-group"><label>Se ha limpiado antes del biocida</label>
+            <select id="t_limpiezaPrevia"><option value="si">Sí</option><option value="no">No</option><option value="parcialmente">Parcialmente</option></select>
+          </div>
+          <div class="form-group"><label>Se han limpiado los depósitos acumuladores</label>
+            <select id="t_limpiezaDepositos"><option value="si">Sí</option><option value="no">No</option><option value="parcialmente">Parcialmente</option></select>
+          </div>
+        </div>
+      </div>
+      <div class="form-section">
         <h3 class="section-title">⏱️ Tiempos</h3>
         <div class="form-grid">
           <div class="form-group"><label>Hora inicio</label><input type="time" id="t_horaInicio"><button class="btn btn-sm btn-ghost" onclick="LegionellaModule.ahora('t_horaInicio')" style="margin-top:4px">Ahora</button></div>
           <div class="form-group"><label>Hora fin</label><input type="time" id="t_horaFin"><button class="btn btn-sm btn-ghost" onclick="LegionellaModule.ahora('t_horaFin')" style="margin-top:4px">Ahora</button></div>
+          <div class="form-group"><label>Tiempo de recirculación del biocida</label><input type="text" id="t_tiempoRecirculacion" placeholder="Ej: 2 horas"></div>
           <div class="form-group form-full">
             <div class="cronometro">
               <div id="cronometro_display" class="cronometro-display">00:00:00</div>
@@ -52,20 +98,9 @@ const LegionellaModule = (() => {
         </div>
       </div>
       <div class="form-section">
-        <h3 class="section-title">🔬 Parámetros Analíticos</h3>
-        <div class="form-grid">
-          <div class="form-group"><label>Temperatura (°C)</label><input type="number" id="t_temperatura" placeholder="Ej: 60" step="0.1"></div>
-          <div class="form-group"><label>pH inicial</label><input type="number" id="t_phInicial" placeholder="7.2" step="0.01" min="0" max="14"></div>
-          <div class="form-group"><label>pH final</label><input type="number" id="t_phFinal" placeholder="7.0" step="0.01" min="0" max="14"></div>
-          <div class="form-group"><label>Cloro libre inicial (ppm)</label><input type="number" id="t_cloroLibreInicial" placeholder="0" step="0.01" min="0"></div>
-          <div class="form-group"><label>Cloro libre final (ppm)</label><input type="number" id="t_cloroLibreFinal" placeholder="0" step="0.01" min="0"></div>
-          <div class="form-group"><label>Cloro combinado (ppm)</label><input type="number" id="t_cloroCombinado" placeholder="0" step="0.01" min="0"></div>
-        </div>
-      </div>
-      <div class="form-section">
         <h3 class="section-title">🧴 Producto Utilizado</h3>
         <div class="form-grid">
-          <div class="form-group"><label>Producto</label>
+          <div class="form-group"><label>Producto principal (biocida)</label>
             <select id="t_producto" onchange="LegionellaModule.onProductoChange()">
               <option value="">Seleccionar…</option>
               <option value="Cloro granulado 65%">Cloro granulado 65%</option>
@@ -76,16 +111,37 @@ const LegionellaModule = (() => {
             </select>
           </div>
           <div class="form-group" id="t_producto_custom_row" style="display:none"><label>Nombre del producto</label><input type="text" id="t_productoCustom" placeholder="Nombre del producto"></div>
+          <div class="form-group"><label>Nº Registro sanitario del biocida</label><input type="text" id="t_productoRegistro" placeholder="Ej: 18-20/40-09716-HA"></div>
+          <div class="form-group"><label>Producto secundario (anticorrosivo, etc.)</label><input type="text" id="t_productoSecundario" placeholder="Ej: ADIC LP Reductor: ADIC PC026"></div>
+          <div class="form-group"><label>Concentración de choque</label><input type="text" id="t_concentracionChoque" placeholder="Ej: 20 ppm durante 2 horas"></div>
           <div class="form-group"><label>Nº Lote</label><input type="text" id="t_lote" placeholder="LOT-2024-001"></div>
           <div class="form-group"><label>Fecha caducidad</label><input type="date" id="t_caducidad"></div>
           <div class="form-group"><label>Cantidad utilizada</label><input type="number" id="t_cantidad" placeholder="0" step="0.01" min="0"></div>
           <div class="form-group"><label>Unidad</label>
-            <select id="t_cantidadUnidad">
-              <option value="g">Gramos (g)</option><option value="kg">Kilogramos (kg)</option>
-              <option value="mL">Mililitros (mL)</option><option value="L">Litros (L)</option>
-            </select>
+            <select id="t_cantidadUnidad"><option value="g">Gramos (g)</option><option value="kg">Kilogramos (kg)</option><option value="mL">Mililitros (mL)</option><option value="L">Litros (L)</option></select>
           </div>
           <div class="form-group"><label>Coste del producto (€)</label><input type="number" id="t_costeProducto" placeholder="0.00" step="0.01" min="0"></div>
+        </div>
+      </div>
+      <div class="form-section">
+        <h3 class="section-title">📍 Partes donde se realiza el tratamiento</h3>
+        <textarea id="t_partesInstalacion" rows="3" placeholder="Especificar las partes donde se realiza el tratamiento, niveles obtenidos y medidas correctoras. Ej: Depósito 10.000 litros, acumulador 500 litros, red AFCH-ACS y elementos terminales" class="textarea-full"></textarea>
+      </div>
+      <div class="form-section">
+        <h3 class="section-title">📊 Tabla de Medidas - Anexo I</h3>
+        <p class="text-muted" style="margin-bottom:12px;font-size:13px">Medidas de temperatura y concentración de desinfectante en puntos de la instalación.</p>
+        <div id="tablaMedias_filas"></div>
+        <button class="btn btn-sm btn-ghost" onclick="LegionellaModule.agregarMedida()" style="margin-top:10px">➕ Añadir medida</button>
+      </div>
+      <div class="form-section">
+        <h3 class="section-title">🔬 Parámetros Generales</h3>
+        <div class="form-grid">
+          <div class="form-group"><label>Temperatura en puntos finales (°C)</label><input type="number" id="t_temperatura" placeholder="60" step="0.1"></div>
+          <div class="form-group"><label>pH inicial</label><input type="number" id="t_phInicial" placeholder="7.2" step="0.01" min="0" max="14"></div>
+          <div class="form-group"><label>pH final</label><input type="number" id="t_phFinal" placeholder="7.0" step="0.01" min="0" max="14"></div>
+          <div class="form-group"><label>Cloro libre inicial (ppm)</label><input type="number" id="t_cloroLibreInicial" placeholder="0" step="0.01" min="0"></div>
+          <div class="form-group"><label>Cloro libre final (ppm)</label><input type="number" id="t_cloroLibreFinal" placeholder="0" step="0.01" min="0"></div>
+          <div class="form-group"><label>Cloro combinado (ppm)</label><input type="number" id="t_cloroCombinado" placeholder="0" step="0.01" min="0"></div>
         </div>
       </div>
       <div class="form-section">
@@ -114,8 +170,9 @@ const LegionellaModule = (() => {
       <div class="form-section">
         <h3 class="section-title">✍️ Firmas</h3>
         <div class="firmas-grid">
-          <div><label class="firma-label-titulo">Técnico</label><div id="firma_tecnico"></div></div>
-          <div><label class="firma-label-titulo">Cliente</label><div id="firma_cliente"></div></div>
+          <div><label class="firma-label-titulo">Técnico aplicador</label><div id="firma_tecnico"></div></div>
+          <div><label class="firma-label-titulo">Responsable técnico</label><div id="firma_responsable"></div></div>
+          <div><label class="firma-label-titulo">Titular / Responsable instalación</label><div id="firma_cliente"></div></div>
         </div>
       </div>
       <div class="form-actions">
@@ -125,7 +182,38 @@ const LegionellaModule = (() => {
       </div>
     </div>`;
 
+  const agregarMedida = () => {
+    medidas.push({ fecha: new Date().toISOString().split('T')[0], hora: '', elemento: '', ubicacion: '', biocida: '', temperatura: '', ph: '' });
+    renderTablaMedias();
+  };
+
+  const renderTablaMedias = () => {
+    const container = document.getElementById('tablaMedias_filas');
+    if (!container) return;
+    if (medidas.length === 0) { container.innerHTML = '<p class="text-muted" style="font-size:13px">Sin medidas. Pulsa "Añadir medida".</p>'; return; }
+    container.innerHTML = medidas.map((m, idx) => `
+      <div style="background:var(--c-surface2);border:1px solid var(--c-border);border-radius:8px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <strong style="font-size:13px">Medida ${idx+1}</strong>
+          <button class="btn-icon danger" onclick="LegionellaModule.eliminarMedida(${idx})">🗑️</button>
+        </div>
+        <div class="form-grid">
+          <div class="form-group"><label>Fecha</label><input type="date" value="${m.fecha}" oninput="LegionellaModule.actualizarMedida(${idx},'fecha',this.value)"></div>
+          <div class="form-group"><label>Hora</label><input type="time" value="${m.hora}" oninput="LegionellaModule.actualizarMedida(${idx},'hora',this.value)"></div>
+          <div class="form-group"><label>Elemento</label><input type="text" value="${m.elemento}" placeholder="Ej: Grifo AFCH" oninput="LegionellaModule.actualizarMedida(${idx},'elemento',this.value)"></div>
+          <div class="form-group"><label>Ubicación</label><input type="text" value="${m.ubicacion}" placeholder="Ej: Terminal 1" oninput="LegionellaModule.actualizarMedida(${idx},'ubicacion',this.value)"></div>
+          <div class="form-group"><label>Biocida (ppm)</label><input type="number" value="${m.biocida}" placeholder="0" step="0.1" oninput="LegionellaModule.actualizarMedida(${idx},'biocida',this.value)"></div>
+          <div class="form-group"><label>Temperatura (°C)</label><input type="number" value="${m.temperatura}" placeholder="0" step="0.1" oninput="LegionellaModule.actualizarMedida(${idx},'temperatura',this.value)"></div>
+          <div class="form-group"><label>pH</label><input type="number" value="${m.ph}" placeholder="7.0" step="0.01" oninput="LegionellaModule.actualizarMedida(${idx},'ph',this.value)"></div>
+        </div>
+      </div>`).join('');
+  };
+
+  const actualizarMedida = (idx, campo, valor) => { if (medidas[idx]) medidas[idx][campo] = valor; };
+  const eliminarMedida = (idx) => { medidas.splice(idx, 1); renderTablaMedias(); };
+
   const load = async (params={}) => {
+    medidas = [];
     document.getElementById('t_fecha').value = new Date().toISOString().split('T')[0];
     document.getElementById('t_horaInicio').value = new Date().toTimeString().slice(0,5);
     const clientes = await DB.getAll('clientes');
@@ -136,11 +224,13 @@ const LegionellaModule = (() => {
       if (inst) { selCliente.value = inst.clienteId; await onClienteChange(inst.clienteId); document.getElementById('t_instalacionId').value = inst.id; }
     }
     if (params.tratamientoId) await cargarTratamiento(params.tratamientoId);
+    renderTablaMedias();
     FotosModule.render('fotos_container');
     GPSModule.renderWidget('gps_container');
     setTimeout(() => {
-      FirmaModule.crear('firma_tecnico', 'Firma del técnico');
-      FirmaModule.crear('firma_cliente', 'Firma del cliente');
+      FirmaModule.crear('firma_tecnico', 'Firma del técnico aplicador');
+      FirmaModule.crear('firma_responsable', 'Firma del responsable técnico');
+      FirmaModule.crear('firma_cliente', 'Firma del titular/responsable instalación');
     }, 300);
     const tecnico = await DB.getConfig('tecnico_nombre');
     if (tecnico) document.getElementById('t_tecnico').value = tecnico;
@@ -185,24 +275,22 @@ const LegionellaModule = (() => {
     const prod=parseFloat(document.getElementById('t_costeProducto').value)||0;
     const mo=h*ph, desp=km*pkm, sub=mo+desp+prod, margenE=sub*(mg/100), total=sub+margenE;
     const el=document.getElementById('coste_resumen');
-    if (el && (h||km||prod)) {
-      el.innerHTML=`
-        <div class="coste-fila"><span>Mano de obra</span><strong>${mo.toFixed(2)} €</strong></div>
-        <div class="coste-fila"><span>Desplazamiento</span><strong>${desp.toFixed(2)} €</strong></div>
-        <div class="coste-fila"><span>Producto</span><strong>${prod.toFixed(2)} €</strong></div>
-        <div class="coste-fila"><span>Margen (${mg}%)</span><strong>${margenE.toFixed(2)} €</strong></div>
-        <div class="coste-fila total"><span>TOTAL</span><strong>${total.toFixed(2)} €</strong></div>`;
-    }
+    if (el && (h||km||prod)) el.innerHTML=`
+      <div class="coste-fila"><span>Mano de obra</span><strong>${mo.toFixed(2)} €</strong></div>
+      <div class="coste-fila"><span>Desplazamiento</span><strong>${desp.toFixed(2)} €</strong></div>
+      <div class="coste-fila"><span>Producto</span><strong>${prod.toFixed(2)} €</strong></div>
+      <div class="coste-fila"><span>Margen (${mg}%)</span><strong>${margenE.toFixed(2)} €</strong></div>
+      <div class="coste-fila total"><span>TOTAL</span><strong>${total.toFixed(2)} €</strong></div>`;
   };
 
   const cargarTratamiento = async (id) => {
     const t = await DB.getById('tratamientos', id);
     if (!t) return;
     currentTratamiento = t;
-    ['fecha','horaInicio','horaFin','temperatura','phInicial','phFinal','cloroLibreInicial','cloroLibreFinal','cloroCombinado','lote','cantidad','costeProducto','horas','km','margen','observaciones','tecnico'].forEach(f=>{const el=document.getElementById(`t_${f}`);if(el&&t[f]!==undefined)el.value=t[f];});
-    if (t.producto) document.getElementById('t_producto').value = t.producto;
-    if (t.normativa) document.getElementById('t_normativa').value = t.normativa;
-    if (t.tipo) document.getElementById('t_tipo').value = t.tipo;
+    const campos = ['fecha','horaInicio','horaFin','temperatura','phInicial','phFinal','cloroLibreInicial','cloroLibreFinal','cloroCombinado','lote','cantidad','costeProducto','horas','km','margen','observaciones','tecnico','tecnicoDni','tecnicoTitulacion','responsable','responsableDni','responsableTitulacion','circuito','tiempoRecirculacion','concentracionChoque','productoRegistro','productoSecundario','partesInstalacion','fechaNotificacion'];
+    campos.forEach(f=>{const el=document.getElementById(`t_${f}`);if(el&&t[f]!==undefined&&t[f]!==null)el.value=t[f];});
+    ['producto','normativa','motivo','estadoConservacion','notificada','planoHidraulico','paradaInstalacion','vaciado','limpiezaPrevia','limpiezaDepositos'].forEach(f=>{const el=document.getElementById(`t_${f}`);if(el&&t[f])el.value=t[f];});
+    if (t.medidas) { medidas = t.medidas; renderTablaMedias(); }
     if (t.fotos) FotosModule.cargarFotos(t.fotos);
   };
 
@@ -216,8 +304,25 @@ const LegionellaModule = (() => {
       horaFin: document.getElementById('t_horaFin').value,
       duracionSegundos: _timerSeconds,
       tecnico: document.getElementById('t_tecnico').value.trim(),
-      tipo: document.getElementById('t_tipo').value,
+      tecnicoDni: document.getElementById('t_tecnicoDni').value.trim(),
+      tecnicoTitulacion: document.getElementById('t_tecnicoTitulacion').value.trim(),
+      responsable: document.getElementById('t_responsable').value.trim(),
+      responsableDni: document.getElementById('t_responsableDni').value.trim(),
+      responsableTitulacion: document.getElementById('t_responsableTitulacion').value.trim(),
+      tipo: document.getElementById('t_motivo').value,
+      motivo: document.getElementById('t_motivo').value,
       normativa: document.getElementById('t_normativa').value,
+      circuito: document.getElementById('t_circuito').value.trim(),
+      tiempoRecirculacion: document.getElementById('t_tiempoRecirculacion').value.trim(),
+      concentracionChoque: document.getElementById('t_concentracionChoque').value.trim(),
+      estadoConservacion: document.getElementById('t_estadoConservacion').value,
+      notificada: document.getElementById('t_notificada').value,
+      fechaNotificacion: document.getElementById('t_fechaNotificacion').value,
+      planoHidraulico: document.getElementById('t_planoHidraulico').value,
+      paradaInstalacion: document.getElementById('t_paradaInstalacion').value,
+      vaciado: document.getElementById('t_vaciado').value,
+      limpiezaPrevia: document.getElementById('t_limpiezaPrevia').value,
+      limpiezaDepositos: document.getElementById('t_limpiezaDepositos').value,
       temperatura: parseFloat(document.getElementById('t_temperatura').value)||null,
       phInicial: parseFloat(document.getElementById('t_phInicial').value)||null,
       phFinal: parseFloat(document.getElementById('t_phFinal').value)||null,
@@ -225,6 +330,8 @@ const LegionellaModule = (() => {
       cloroLibreFinal: parseFloat(document.getElementById('t_cloroLibreFinal').value)||null,
       cloroCombinado: parseFloat(document.getElementById('t_cloroCombinado').value)||null,
       producto: pv==='custom' ? document.getElementById('t_productoCustom').value : pv,
+      productoRegistro: document.getElementById('t_productoRegistro').value.trim(),
+      productoSecundario: document.getElementById('t_productoSecundario').value.trim(),
       lote: document.getElementById('t_lote').value.trim(),
       caducidad: document.getElementById('t_caducidad').value,
       cantidad: parseFloat(document.getElementById('t_cantidad').value)||null,
@@ -235,9 +342,12 @@ const LegionellaModule = (() => {
       km: parseFloat(document.getElementById('t_km').value)||0,
       precioKm: parseFloat(document.getElementById('t_precioKm').value)||0,
       margen: parseFloat(document.getElementById('t_margen').value)||0,
+      partesInstalacion: document.getElementById('t_partesInstalacion').value.trim(),
       observaciones: document.getElementById('t_observaciones').value.trim(),
+      medidas: [...medidas],
       fotos: FotosModule.obtenerFotos(),
       firmaTecnico: FirmaModule.obtenerImagen('firma_tecnico'),
+      firmaResponsable: FirmaModule.obtenerImagen('firma_responsable'),
       firmaCliente: FirmaModule.obtenerImagen('firma_cliente'),
       gps: GPSModule.getLastPosition(),
     };
@@ -255,6 +365,6 @@ const LegionellaModule = (() => {
     App.refreshDashboard();
   };
 
-  return { render, load, onClienteChange, onProductoChange, ahora, iniciarCronometro, pararCronometro, resetCronometro, calcularCoste, guardar };
+  return { render, load, onClienteChange, onProductoChange, ahora, iniciarCronometro, pararCronometro, resetCronometro, calcularCoste, agregarMedida, actualizarMedida, eliminarMedida, guardar };
 })();
 window.LegionellaModule = LegionellaModule;
