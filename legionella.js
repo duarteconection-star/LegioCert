@@ -1,6 +1,6 @@
 /**
- * LegioCert Pro - Módulo de Tratamientos v3
- * Campos actualizados según certificado oficial RD 487/2022
+ * LegioCert Pro - Módulo de Tratamientos v4
+ * Soporte para múltiples instalaciones en un mismo tratamiento
  */
 const LegionellaModule = (() => {
   let currentTratamiento = null;
@@ -14,10 +14,15 @@ const LegionellaModule = (() => {
       <div class="form-section">
         <h3 class="section-title">📋 Datos Generales</h3>
         <div class="form-grid">
-          <div class="form-group"><label>Cliente *</label><select id="t_clienteId" onchange="LegionellaModule.onClienteChange(this.value)"><option value="">Seleccionar cliente…</option></select></div>
-          <div class="form-group"><label>Instalación *</label><select id="t_instalacionId"><option value="">Primero selecciona cliente</option></select></div>
+          <div class="form-group form-full"><label>Cliente *</label><select id="t_clienteId" onchange="LegionellaModule.onClienteChange(this.value)"><option value="">Seleccionar cliente…</option></select></div>
+          <div class="form-group form-full">
+            <label>Instalaciones tratadas * <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--c-text-muted)">(selecciona una o varias)</span></label>
+            <div id="t_instalaciones_container" style="background:var(--c-surface2);border:1.5px solid var(--c-border);border-radius:8px;padding:12px;min-height:60px">
+              <p class="text-muted" style="font-size:13px">Primero selecciona un cliente</p>
+            </div>
+          </div>
           <div class="form-group"><label>Fecha *</label><input type="date" id="t_fecha"></div>
-          <div class="form-group"><label>Nombre del circuito</label><input type="text" id="t_circuito" placeholder="Ej: Red ACS planta baja"></div>
+          <div class="form-group"><label>Nombre del circuito</label><input type="text" id="t_circuito" placeholder="Ej: Red ACS + AFCH planta baja"></div>
           <div class="form-group"><label>Motivo del tratamiento</label>
             <select id="t_motivo">
               <option value="mantenimiento">Mantenimiento programado</option>
@@ -112,7 +117,7 @@ const LegionellaModule = (() => {
           </div>
           <div class="form-group" id="t_producto_custom_row" style="display:none"><label>Nombre del producto</label><input type="text" id="t_productoCustom" placeholder="Nombre del producto"></div>
           <div class="form-group"><label>Nº Registro sanitario del biocida</label><input type="text" id="t_productoRegistro" placeholder="Ej: 18-20/40-09716-HA"></div>
-          <div class="form-group"><label>Producto secundario (anticorrosivo, etc.)</label><input type="text" id="t_productoSecundario" placeholder="Ej: ADIC LP Reductor: ADIC PC026"></div>
+          <div class="form-group"><label>Producto secundario</label><input type="text" id="t_productoSecundario" placeholder="Ej: ADIC LP Reductor: ADIC PC026"></div>
           <div class="form-group"><label>Concentración de choque</label><input type="text" id="t_concentracionChoque" placeholder="Ej: 20 ppm durante 2 horas"></div>
           <div class="form-group"><label>Nº Lote</label><input type="text" id="t_lote" placeholder="LOT-2024-001"></div>
           <div class="form-group"><label>Fecha caducidad</label><input type="date" id="t_caducidad"></div>
@@ -125,11 +130,11 @@ const LegionellaModule = (() => {
       </div>
       <div class="form-section">
         <h3 class="section-title">📍 Partes donde se realiza el tratamiento</h3>
-        <textarea id="t_partesInstalacion" rows="3" placeholder="Especificar las partes donde se realiza el tratamiento, niveles obtenidos y medidas correctoras. Ej: Depósito 10.000 litros, acumulador 500 litros, red AFCH-ACS y elementos terminales" class="textarea-full"></textarea>
+        <textarea id="t_partesInstalacion" rows="3" placeholder="Ej: Depósito 10.000 litros, acumulador 500 litros, red AFCH-ACS y elementos terminales" class="textarea-full"></textarea>
       </div>
       <div class="form-section">
         <h3 class="section-title">📊 Tabla de Medidas - Anexo I</h3>
-        <p class="text-muted" style="margin-bottom:12px;font-size:13px">Medidas de temperatura y concentración de desinfectante en puntos de la instalación.</p>
+        <p class="text-muted" style="margin-bottom:12px;font-size:13px">Medidas de temperatura y concentración en puntos de la instalación.</p>
         <div id="tablaMedias_filas"></div>
         <button class="btn btn-sm btn-ghost" onclick="LegionellaModule.agregarMedida()" style="margin-top:10px">➕ Añadir medida</button>
       </div>
@@ -216,14 +221,25 @@ const LegionellaModule = (() => {
     medidas = [];
     document.getElementById('t_fecha').value = new Date().toISOString().split('T')[0];
     document.getElementById('t_horaInicio').value = new Date().toTimeString().slice(0,5);
+
     const clientes = await DB.getAll('clientes');
     const selCliente = document.getElementById('t_clienteId');
-    selCliente.innerHTML = '<option value="">Seleccionar cliente…</option>' + clientes.map(c=>`<option value="${c.id}">${c.nombre}${c.empresa?` – ${c.empresa}`:''}</option>`).join('');
+    selCliente.innerHTML = '<option value="">Seleccionar cliente…</option>' +
+      clientes.map(c=>`<option value="${c.id}">${c.nombre}${c.empresa?` – ${c.empresa}`:''}</option>`).join('');
+
     if (params.instalacionId) {
       const inst = await DB.getById('instalaciones', params.instalacionId);
-      if (inst) { selCliente.value = inst.clienteId; await onClienteChange(inst.clienteId); document.getElementById('t_instalacionId').value = inst.id; }
+      if (inst) {
+        selCliente.value = inst.clienteId;
+        await onClienteChange(inst.clienteId);
+        // Marcar esta instalación como seleccionada
+        const cb = document.getElementById(`inst_cb_${inst.id}`);
+        if (cb) cb.checked = true;
+      }
     }
+
     if (params.tratamientoId) await cargarTratamiento(params.tratamientoId);
+
     renderTablaMedias();
     FotosModule.render('fotos_container');
     GPSModule.renderWidget('gps_container');
@@ -232,19 +248,35 @@ const LegionellaModule = (() => {
       FirmaModule.crear('firma_responsable', 'Firma del responsable técnico');
       FirmaModule.crear('firma_cliente', 'Firma del titular/responsable instalación');
     }, 300);
+
     const tecnico = await DB.getConfig('tecnico_nombre');
     if (tecnico) document.getElementById('t_tecnico').value = tecnico;
   };
 
   const onClienteChange = async (clienteId) => {
-    const sel = document.getElementById('t_instalacionId');
-    if (!clienteId) { sel.innerHTML = '<option value="">Primero selecciona cliente</option>'; return; }
-    const instalaciones = await DB.getAll('instalaciones','clienteId',parseInt(clienteId));
-    sel.innerHTML = '<option value="">Seleccionar instalación…</option>' + instalaciones.map(i=>`<option value="${i.id}">${i.nombre||i.tipo}${i.volumen?` (${i.volumen}L)`:''}</option>`).join('');
+    const container = document.getElementById('t_instalaciones_container');
+    if (!clienteId) {
+      container.innerHTML = '<p class="text-muted" style="font-size:13px">Primero selecciona un cliente</p>';
+      return;
+    }
+    const instalaciones = await DB.getAll('instalaciones', 'clienteId', parseInt(clienteId));
+    if (instalaciones.length === 0) {
+      container.innerHTML = '<p class="text-muted" style="font-size:13px">Este cliente no tiene instalaciones registradas. <a href="#" onclick="App.navigate(\'instalaciones\',{clienteId:'+clienteId+'})">Añadir instalación</a></p>';
+      return;
+    }
+    container.innerHTML = instalaciones.map(inst => `
+      <label style="display:flex;align-items:center;gap:10px;padding:8px;border-radius:6px;cursor:pointer;margin-bottom:4px;background:var(--c-surface);border:1px solid var(--c-border)">
+        <input type="checkbox" id="inst_cb_${inst.id}" value="${inst.id}" style="width:18px;height:18px;accent-color:var(--c-accent)">
+        <div>
+          <div style="font-weight:600;font-size:14px">${inst.nombre || inst.tipo}</div>
+          <div style="font-size:12px;color:var(--c-text-muted)">${inst.tipo}${inst.volumen ? ` · ${inst.volumen.toLocaleString()} L` : ''}${inst.ubicacion ? ` · ${inst.ubicacion}` : ''}</div>
+        </div>
+      </label>`).join('');
   };
 
   const onProductoChange = () => {
-    document.getElementById('t_producto_custom_row').style.display = document.getElementById('t_producto').value === 'custom' ? 'block' : 'none';
+    document.getElementById('t_producto_custom_row').style.display =
+      document.getElementById('t_producto').value === 'custom' ? 'block' : 'none';
   };
 
   const ahora = (id) => { document.getElementById(id).value = new Date().toTimeString().slice(0,5); };
@@ -287,6 +319,17 @@ const LegionellaModule = (() => {
     const t = await DB.getById('tratamientos', id);
     if (!t) return;
     currentTratamiento = t;
+    if (t.clienteId) {
+      document.getElementById('t_clienteId').value = t.clienteId;
+      await onClienteChange(t.clienteId);
+      // Marcar instalaciones guardadas
+      if (t.instalacionIds && Array.isArray(t.instalacionIds)) {
+        t.instalacionIds.forEach(instId => {
+          const cb = document.getElementById(`inst_cb_${instId}`);
+          if (cb) cb.checked = true;
+        });
+      }
+    }
     const campos = ['fecha','horaInicio','horaFin','temperatura','phInicial','phFinal','cloroLibreInicial','cloroLibreFinal','cloroCombinado','lote','cantidad','costeProducto','horas','km','margen','observaciones','tecnico','tecnicoDni','tecnicoTitulacion','responsable','responsableDni','responsableTitulacion','circuito','tiempoRecirculacion','concentracionChoque','productoRegistro','productoSecundario','partesInstalacion','fechaNotificacion'];
     campos.forEach(f=>{const el=document.getElementById(`t_${f}`);if(el&&t[f]!==undefined&&t[f]!==null)el.value=t[f];});
     ['producto','normativa','motivo','estadoConservacion','notificada','planoHidraulico','paradaInstalacion','vaciado','limpiezaPrevia','limpiezaDepositos'].forEach(f=>{const el=document.getElementById(`t_${f}`);if(el&&t[f])el.value=t[f];});
@@ -294,11 +337,18 @@ const LegionellaModule = (() => {
     if (t.fotos) FotosModule.cargarFotos(t.fotos);
   };
 
+  const getInstalacionesSeleccionadas = () => {
+    const checkboxes = document.querySelectorAll('#t_instalaciones_container input[type="checkbox"]:checked');
+    return Array.from(checkboxes).map(cb => parseInt(cb.value));
+  };
+
   const recogerDatos = () => {
     const pv = document.getElementById('t_producto').value;
+    const instalacionIds = getInstalacionesSeleccionadas();
     return {
       clienteId: parseInt(document.getElementById('t_clienteId').value)||null,
-      instalacionId: parseInt(document.getElementById('t_instalacionId').value)||null,
+      instalacionIds: instalacionIds,
+      instalacionId: instalacionIds[0] || null, // compatibilidad historial
       fecha: document.getElementById('t_fecha').value,
       horaInicio: document.getElementById('t_horaInicio').value,
       horaFin: document.getElementById('t_horaFin').value,
@@ -355,11 +405,16 @@ const LegionellaModule = (() => {
 
   const guardar = async (generarCert) => {
     const datos = recogerDatos();
-    if (!datos.clienteId||!datos.instalacionId) { App.toast('Selecciona cliente e instalación','error'); return; }
+    if (!datos.clienteId) { App.toast('Selecciona un cliente','error'); return; }
+    if (!datos.instalacionIds || datos.instalacionIds.length === 0) { App.toast('Selecciona al menos una instalación','error'); return; }
     if (!datos.fecha) { App.toast('Indica la fecha del tratamiento','error'); return; }
     let id;
-    if (currentTratamiento) { await DB.update('tratamientos',{...datos,id:currentTratamiento.id}); id=currentTratamiento.id; App.toast('Tratamiento actualizado','success'); }
-    else { id = await DB.add('tratamientos',datos); App.toast('Tratamiento guardado','success'); }
+    if (currentTratamiento) {
+      await DB.update('tratamientos',{...datos,id:currentTratamiento.id});
+      id=currentTratamiento.id; App.toast('Tratamiento actualizado','success');
+    } else {
+      id = await DB.add('tratamientos',datos); App.toast('Tratamiento guardado','success');
+    }
     if (generarCert) await PDFModule.generarCertificado(id);
     else App.navigate('historial');
     App.refreshDashboard();
