@@ -1,6 +1,6 @@
 /**
- * LegioCert Pro - Generador de Certificados PDF v3
- * Incluye todos los campos del certificado oficial RD 487/2022
+ * LegioCert Pro - Generador de Certificados PDF v4
+ * Soporte para múltiples instalaciones en un mismo certificado
  */
 const PDFModule = (() => {
   const generarCertificado = async (tratamientoId) => {
@@ -8,7 +8,19 @@ const PDFModule = (() => {
     const trat = await DB.getById('tratamientos', tratamientoId);
     if (!trat) { App.toast('Tratamiento no encontrado', 'error'); return; }
     const cliente = trat.clienteId ? await DB.getById('clientes', trat.clienteId) : null;
-    const instalacion = trat.instalacionId ? await DB.getById('instalaciones', trat.instalacionId) : null;
+
+    // Cargar todas las instalaciones del tratamiento
+    let instalaciones = [];
+    if (trat.instalacionIds && Array.isArray(trat.instalacionIds) && trat.instalacionIds.length > 0) {
+      for (const instId of trat.instalacionIds) {
+        const inst = await DB.getById('instalaciones', instId);
+        if (inst) instalaciones.push(inst);
+      }
+    } else if (trat.instalacionId) {
+      const inst = await DB.getById('instalaciones', trat.instalacionId);
+      if (inst) instalaciones.push(inst);
+    }
+
     const numeroCert = await DB.nextCertNumber();
     const empresa = {
       nombre: await DB.getConfig('cfg_empresa') || CONFIG.PDF.EMPRESA,
@@ -18,26 +30,27 @@ const PDFModule = (() => {
       direccion: await DB.getConfig('cfg_direccion') || '',
       registro: await DB.getConfig('cfg_registro') || '',
     };
-    await DB.add('certificados', { tratamientoId, numero: numeroCert, fecha: new Date().toISOString(), clienteId: trat.clienteId, instalacionId: trat.instalacionId });
+    await DB.add('certificados', { tratamientoId, numero: numeroCert, fecha: new Date().toISOString(), clienteId: trat.clienteId });
     const qr = generarQR(`LegioCert:${numeroCert}|${trat.fecha}|${cliente?.nombre||''}`);
-    abrirVentanaPDF(buildHTML(numeroCert, trat, cliente, instalacion, qr, empresa), numeroCert);
+    abrirVentanaPDF(buildHTML(numeroCert, trat, cliente, instalaciones, qr, empresa), numeroCert);
     App.toast(`Certificado ${numeroCert} generado`, 'success');
     App.refreshDashboard();
     App.navigate('historial');
   };
 
-  const siNo = (v) => v === 'si' ? '✅ Sí' : v === 'no' ? '❌ No' : v === 'parcialmente' ? '⚠️ Parcialmente' : v || '—';
+  const siNo = (v) => v==='si'?'✅ Sí':v==='no'?'❌ No':v==='parcialmente'?'⚠️ Parcialmente':v||'—';
 
-  const buildHTML = (numero, trat, cliente, instalacion, qr, empresa) => {
+  const buildHTML = (numero, trat, cliente, instalaciones, qr, empresa) => {
     const fecha = trat.fecha ? new Date(trat.fecha+'T12:00:00').toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'}) : '—';
-    const tipoNorm = {RD487:CONFIG.NORMATIVA.RD_487,RD614:CONFIG.NORMATIVA.RD_614,UNE:CONFIG.NORMATIVA.UNE}[trat.normativa] || trat.normativa || CONFIG.NORMATIVA.RD_487;
-    const motivoLabel = {mantenimiento:'Mantenimiento programado',aislamiento:'Aislamiento de Legionella',correctora:'Medida correctora',brote:'Brote / Caso',otro:'Otro'}[trat.motivo] || trat.motivo || '—';
-    const conservLabel = {correcto:'Correcto',corrosion:'Con corrosión',incrustaciones:'Con incrustaciones / biocapa / algas',deficiente:'Deficiente'}[trat.estadoConservacion] || trat.estadoConservacion || '—';
-    const dur = trat.duracionSegundos ? (()=>{const h=Math.floor(trat.duracionSegundos/3600),m=Math.floor((trat.duracionSegundos%3600)/60);return h>0?`${h}h ${m}m`:`${m}m`;})() : '—';
+    const tipoNorm = {RD487:CONFIG.NORMATIVA.RD_487,RD614:CONFIG.NORMATIVA.RD_614,UNE:CONFIG.NORMATIVA.UNE}[trat.normativa]||trat.normativa||CONFIG.NORMATIVA.RD_487;
+    const motivoLabel = {mantenimiento:'Mantenimiento programado',aislamiento:'Aislamiento de Legionella',correctora:'Medida correctora',brote:'Brote / Caso',otro:'Otro'}[trat.motivo]||trat.motivo||'—';
+    const conservLabel = {correcto:'Correcto',corrosion:'Con corrosión',incrustaciones:'Con incrustaciones / biocapa / algas',deficiente:'Deficiente'}[trat.estadoConservacion]||trat.estadoConservacion||'—';
+    const dur = trat.duracionSegundos?(()=>{const h=Math.floor(trat.duracionSegundos/3600),m=Math.floor((trat.duracionSegundos%3600)/60);return h>0?`${h}h ${m}m`:`${m}m`;})():'—';
     const fotosHTML = buildFotos(trat.fotos);
     const firmasHTML = buildFirmas(trat.firmaTecnico, trat.firmaResponsable, trat.firmaCliente, trat.tecnico, trat.responsable);
     const tablaMediasHTML = buildTablaMedias(trat.medidas);
-    const gpsHTML = trat.gps ? `<tr><td>Latitud/Longitud</td><td>${trat.gps.latitude?.toFixed(6)} / ${trat.gps.longitude?.toFixed(6)}</td></tr><tr><td>Dirección GPS</td><td>${trat.gps.direccion||'—'}</td></tr>` : '';
+    const instalacionesHTML = buildInstalaciones(instalaciones);
+    const gpsHTML = trat.gps?`<tr><td>Latitud/Longitud</td><td>${trat.gps.latitude?.toFixed(6)} / ${trat.gps.longitude?.toFixed(6)}</td></tr><tr><td>Dirección GPS</td><td>${trat.gps.direccion||'—'}</td></tr>`:'';
 
     return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Certificado ${numero}</title>
 <style>
@@ -56,14 +69,17 @@ body{font-family:'Segoe UI',Arial,sans-serif;font-size:10pt;color:#1a1a2e;backgr
 .section h2{font-size:8.5pt;font-weight:700;color:#0A2342;border-left:4px solid #00BCD4;padding-left:7px;margin-bottom:7px;text-transform:uppercase;letter-spacing:.5px}
 table{width:100%;border-collapse:collapse}
 td{padding:4px 7px;border-bottom:1px solid #eef0f4;font-size:9pt;vertical-align:top}
-td:first-child{width:42%;color:#555;font-weight:500}
+td:first-child{width:40%;color:#555;font-weight:500}
 tr:last-child td{border-bottom:none}
 .empresa-box{background:#f0f4f8;border-radius:6px;padding:10px 12px;display:grid;grid-template-columns:1fr 1fr;gap:5px;font-size:8.5pt}
 .ea-item{display:flex;flex-direction:column}
 .ea-label{font-size:6.5pt;color:#666;text-transform:uppercase}
 .ea-value{font-weight:600;color:#0A2342}
 .ea-full{grid-column:1/-1}
-.checklist{display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:9pt}
+.inst-card{background:#f8fafc;border:1px solid #e0e7ef;border-radius:6px;padding:10px 12px;margin-bottom:8px}
+.inst-card h3{font-size:9pt;font-weight:700;color:#0A2342;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.inst-card table td:first-child{width:38%}
+.checklist{display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:9pt;margin-top:8px}
 .check-item{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #f0f0f0}
 .check-label{color:#555;font-weight:500;flex:1}
 .params-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
@@ -82,7 +98,6 @@ tr:last-child td{border-bottom:none}
 .firma-box{border:1px solid #dde;border-radius:5px;padding:8px;text-align:center;min-height:100px;display:flex;flex-direction:column;justify-content:space-between}
 .firma-box img{max-width:100%;max-height:65px;object-fit:contain}
 .firma-nombre{font-size:7.5pt;color:#555;margin-top:4px;font-weight:600}
-.firma-dni{font-size:6.5pt;color:#888}
 .firma-linea{border-top:1px solid #ccc;margin-top:40px;padding-top:3px;font-size:7pt;color:#aaa}
 .fotos-grupo h3{font-size:8.5pt;color:#555;margin:7px 0 5px}
 .fotos-grid-pdf{display:flex;flex-wrap:wrap;gap:7px}
@@ -114,7 +129,6 @@ tr:last-child td{border-bottom:none}
   <div class="norm">${tipoNorm} · ${CONFIG.NORMATIVA.UNE}</div>
 </div>
 
-<!-- EMPRESA APLICADORA -->
 <div class="section">
   <h2>Datos de la Empresa que Realiza el Tratamiento</h2>
   <div class="empresa-box">
@@ -127,7 +141,6 @@ tr:last-child td{border-bottom:none}
   </div>
 </div>
 
-<!-- TÉCNICOS -->
 <div class="section">
   <h2>Responsables del Tratamiento</h2>
   <table>
@@ -139,12 +152,10 @@ tr:last-child td{border-bottom:none}
     <tr><td colspan="2" style="background:#f5f5f5;font-weight:700;font-size:8.5pt;color:#0A2342;border-top:2px solid #dde">Responsable técnico</td></tr>
     <tr><td>Nombre</td><td>${trat.responsable||'—'}</td></tr>
     <tr><td>DNI</td><td>${trat.responsableDni||'—'}</td></tr>
-    <tr><td>Titulación / Acreditación</td><td>${trat.responsableTitulacion||'—'}</td></tr>
-    `:''}
+    <tr><td>Titulación / Acreditación</td><td>${trat.responsableTitulacion||'—'}</td></tr>`:''}
   </table>
 </div>
 
-<!-- CLIENTE -->
 <div class="section">
   <h2>Datos del Contratante</h2>
   <table>
@@ -157,22 +168,8 @@ tr:last-child td{border-bottom:none}
   </table>
 </div>
 
-<!-- INSTALACIÓN -->
-<div class="section">
-  <h2>Instalaciones</h2>
-  <table>
-    <tr><td>Instalación tratada</td><td>${instalacion?.nombre||'—'} · ${instalacion?.tipo||'—'}</td></tr>
-    <tr><td>Nombre del circuito</td><td>${trat.circuito||'—'}</td></tr>
-    <tr><td>Volumen</td><td>${instalacion?.volumen?`${instalacion.volumen.toLocaleString('es-ES')} litros`:'—'}</td></tr>
-    <tr><td>Material</td><td>${instalacion?.material||'—'}</td></tr>
-    <tr><td>Ubicación</td><td>${instalacion?.ubicacion||'—'}</td></tr>
-    <tr><td>Estado de conservación</td><td>${conservLabel}</td></tr>
-    <tr><td>Notificada a autoridad competente</td><td>${siNo(trat.notificada)}${trat.fechaNotificacion?` · Fecha: ${trat.fechaNotificacion}`:''}</td></tr>
-    <tr><td>Plano esquema hidráulico actualizado</td><td>${siNo(trat.planoHidraulico)}</td></tr>
-  </table>
-</div>
+${instalacionesHTML}
 
-<!-- MOTIVO Y TRATAMIENTO -->
 <div class="section">
   <h2>Datos del Tratamiento</h2>
   <table>
@@ -183,19 +180,16 @@ tr:last-child td{border-bottom:none}
     <tr><td>Tiempo de recirculación del biocida</td><td>${trat.tiempoRecirculacion||'—'}</td></tr>
     <tr><td>Normativa aplicada</td><td><span class="badge-norm">${tipoNorm}</span></td></tr>
     <tr><td>Concentración de choque y tiempo de contacto</td><td>${trat.concentracionChoque||'—'}</td></tr>
+    ${trat.circuito?`<tr><td>Nombre del circuito</td><td>${trat.circuito}</td></tr>`:''}
   </table>
-
-  <div style="margin-top:10px">
-    <div class="checklist">
-      <div class="check-item"><span class="check-label">Se ha parado la instalación</span><span>${siNo(trat.paradaInstalacion)}</span></div>
-      <div class="check-item"><span class="check-label">Se ha vaciado previamente</span><span>${siNo(trat.vaciado)}</span></div>
-      <div class="check-item"><span class="check-label">Se ha limpiado antes de añadir el biocida</span><span>${siNo(trat.limpiezaPrevia)}</span></div>
-      <div class="check-item"><span class="check-label">Se han limpiado los depósitos acumuladores</span><span>${siNo(trat.limpiezaDepositos)}</span></div>
-    </div>
+  <div class="checklist">
+    <div class="check-item"><span class="check-label">Se ha parado la instalación</span><span>${siNo(trat.paradaInstalacion)}</span></div>
+    <div class="check-item"><span class="check-label">Se ha vaciado previamente</span><span>${siNo(trat.vaciado)}</span></div>
+    <div class="check-item"><span class="check-label">Se ha limpiado antes de añadir el biocida</span><span>${siNo(trat.limpiezaPrevia)}</span></div>
+    <div class="check-item"><span class="check-label">Se han limpiado los depósitos acumuladores</span><span>${siNo(trat.limpiezaDepositos)}</span></div>
   </div>
 </div>
 
-<!-- PRODUCTOS -->
 <div class="section">
   <h2>Productos Utilizados</h2>
   <table>
@@ -207,14 +201,8 @@ tr:last-child td{border-bottom:none}
   </table>
 </div>
 
-<!-- PARTES DE LA INSTALACIÓN -->
-${trat.partesInstalacion?`
-<div class="section">
-  <h2>Partes donde se Realiza el Tratamiento</h2>
-  <p style="padding:8px 10px;background:#f8fafc;border-radius:5px;font-size:9pt;line-height:1.6">${trat.partesInstalacion}</p>
-</div>`:''}
+${trat.partesInstalacion?`<div class="section"><h2>Partes donde se Realiza el Tratamiento</h2><p style="padding:8px 10px;background:#f8fafc;border-radius:5px;font-size:9pt;line-height:1.6">${trat.partesInstalacion}</p></div>`:''}
 
-<!-- PARÁMETROS ANALÍTICOS -->
 <div class="section">
   <h2>Parámetros Analíticos</h2>
   <div class="params-grid">
@@ -227,22 +215,16 @@ ${trat.partesInstalacion?`
   </div>
 </div>
 
-<!-- TABLA DE MEDIDAS - ANEXO I -->
 ${tablaMediasHTML}
 
-<!-- GPS -->
 ${trat.gps?`<div class="section"><h2>Ubicación GPS</h2><table>${gpsHTML}</table></div>`:''}
 
-<!-- OBSERVACIONES -->
 ${trat.observaciones?`<div class="section"><h2>Observaciones</h2><p style="padding:8px 10px;background:#f8fafc;border-radius:5px;font-size:9pt;line-height:1.6">${trat.observaciones}</p></div>`:''}
 
-<!-- FOTOS -->
 ${fotosHTML}
 
-<!-- FIRMAS -->
 <div class="section"><h2>Responsables y Firmas</h2>${firmasHTML}</div>
 
-<!-- TEXTO LEGAL -->
 <div class="section">
   <h2>Declaración Legal</h2>
   <div class="texto-legal">${CONFIG.TEXTOS_LEGALES.intro}<br><br>${CONFIG.TEXTOS_LEGALES.metodo}<br><br>${CONFIG.TEXTOS_LEGALES.validez}</div>
@@ -259,6 +241,31 @@ ${fotosHTML}
 </div></body></html>`;
   };
 
+  const buildInstalaciones = (instalaciones) => {
+    if (!instalaciones || instalaciones.length === 0) return '';
+    const iconos = {'ACS':'🚿','AFCH':'💧','Depósito':'🪣','Piscina':'🏊','SPA':'♨️','Torre':'🏗️','Humectador':'💨','Fuente':'⛲'};
+    return `
+      <div class="section">
+        <h2>Instalaciones Tratadas (${instalaciones.length})</h2>
+        ${instalaciones.map((inst, idx) => {
+          const iconKey = Object.keys(iconos).find(k=>(inst.tipo||'').includes(k));
+          const icono = iconKey ? iconos[iconKey] : '🏢';
+          return `
+          <div class="inst-card">
+            <h3>${icono} ${inst.nombre || inst.tipo || 'Instalación'} ${instalaciones.length > 1 ? `<span style="font-size:8pt;color:#888;font-weight:400">(${idx+1} de ${instalaciones.length})</span>` : ''}</h3>
+            <table>
+              <tr><td>Tipo</td><td>${inst.tipo||'—'}</td></tr>
+              <tr><td>Volumen</td><td>${inst.volumen?`${inst.volumen.toLocaleString('es-ES')} litros`:'—'}</td></tr>
+              <tr><td>Material</td><td>${inst.material||'—'}</td></tr>
+              <tr><td>Año instalación</td><td>${inst.anio||'—'}</td></tr>
+              <tr><td>Ubicación</td><td>${inst.ubicacion||'—'}</td></tr>
+              ${inst.observaciones?`<tr><td>Observaciones</td><td>${inst.observaciones}</td></tr>`:''}
+            </table>
+          </div>`;
+        }).join('')}
+      </div>`;
+  };
+
   const buildTablaMedias = (medidas) => {
     if (!medidas || medidas.length === 0) return '';
     return `
@@ -266,9 +273,7 @@ ${fotosHTML}
         <h2>Anexo I — Medidas de Temperatura y Concentración de Desinfectante</h2>
         <table class="tabla-medidas">
           <thead><tr><th>Nº</th><th>Fecha</th><th>Hora</th><th>Elemento</th><th>Ubicación</th><th>Biocida (ppm)</th><th>Tª (°C)</th><th>pH</th></tr></thead>
-          <tbody>
-            ${medidas.map((m,i)=>`<tr><td>${i+1}</td><td>${m.fecha||'—'}</td><td>${m.hora||'—'}</td><td>${m.elemento||'—'}</td><td>${m.ubicacion||'—'}</td><td>${m.biocida||'—'}</td><td>${m.temperatura||'—'}</td><td>${m.ph||'—'}</td></tr>`).join('')}
-          </tbody>
+          <tbody>${medidas.map((m,i)=>`<tr><td>${i+1}</td><td>${m.fecha||'—'}</td><td>${m.hora||'—'}</td><td>${m.elemento||'—'}</td><td>${m.ubicacion||'—'}</td><td>${m.biocida||'—'}</td><td>${m.temperatura||'—'}</td><td>${m.ph||'—'}</td></tr>`).join('')}</tbody>
         </table>
       </div>`;
   };
@@ -283,31 +288,27 @@ ${fotosHTML}
 
   const buildFirmas = (firmaTecnico, firmaResponsable, firmaCliente, tecnico, responsable) => {
     const esFirmaValida = (f) => f && f.length > 100 && !f.endsWith(',');
-    const mkFirma = (firma, nombre, dni, label) => `
+    const mkFirma = (firma, nombre, label) => `
       <div class="firma-box">
         ${esFirmaValida(firma)?`<img src="${firma}" alt="firma">`:'<div class="firma-linea">&nbsp;</div>'}
         <div>
           <div class="firma-nombre">${label}</div>
-          ${nombre?`<div class="firma-dni">Fdo. ${nombre}</div>`:''}
-          ${dni?`<div class="firma-dni">DNI: ${dni}</div>`:''}
+          ${nombre?`<div class="firma-nombre" style="font-weight:400">Fdo. ${nombre}</div>`:''}
         </div>
       </div>`;
     return `<div class="firmas-grid">
-      ${mkFirma(firmaTecnico, tecnico, '', 'Técnico aplicador')}
-      ${mkFirma(firmaResponsable, responsable, '', 'Responsable técnico')}
-      ${mkFirma(firmaCliente, '', '', 'Titular / Responsable instalación')}
+      ${mkFirma(firmaTecnico, tecnico, 'Técnico aplicador')}
+      ${mkFirma(firmaResponsable, responsable, 'Responsable técnico')}
+      ${mkFirma(firmaCliente, '', 'Titular / Responsable instalación')}
     </div>`;
   };
 
   const generarQR = (texto) => {
-    const canvas=document.createElement('canvas'), s=100;
-    canvas.width=s; canvas.height=s;
+    const canvas=document.createElement('canvas'),s=100;canvas.width=s;canvas.height=s;
     const ctx=canvas.getContext('2d');
-    ctx.fillStyle='#fff'; ctx.fillRect(0,0,s,s);
-    ctx.fillStyle='#000';
-    ctx.fillRect(0,0,s,10); ctx.fillRect(0,90,s,10); ctx.fillRect(0,0,10,s); ctx.fillRect(90,0,10,s);
-    let hash=0;
-    for(let i=0;i<texto.length;i++){hash=((hash<<5)-hash)+texto.charCodeAt(i);hash|=0;}
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,s,s);ctx.fillStyle='#000';
+    ctx.fillRect(0,0,s,10);ctx.fillRect(0,90,s,10);ctx.fillRect(0,0,10,s);ctx.fillRect(90,0,10,s);
+    let hash=0;for(let i=0;i<texto.length;i++){hash=((hash<<5)-hash)+texto.charCodeAt(i);hash|=0;}
     for(let x=2;x<9;x++) for(let y=2;y<9;y++) if((hash+x*7+y*13)%3!==0) ctx.fillRect(x*10,y*10,9,9);
     return canvas.toDataURL('image/png');
   };
