@@ -382,3 +382,19 @@ textarea{resize:vertical;min-height:80px}
   .protocol-buttons{flex-direction:row}
   .cronometro-display{font-size:26px}
 }
+/* ─── FIX WEBVIEW ANDROID ─────────────────────────────────────────────── */
+.content {
+  -webkit-overflow-scrolling: touch;
+  overflow-y: scroll;
+  padding-bottom: calc(var(--bottom-nav-h) + 20px) !important;
+}
+button, a, label, select, input, textarea {
+  -webkit-tap-highlight-color: rgba(0,188,212,0.2);
+  touch-action: manipulation;
+}
+.nav-item, .btn, .stat-card, .card, .bottom-nav-item {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.modal-content { max-height: 85vh !important; }
+.bottom-nav { padding-bottom: 0 !important; }
