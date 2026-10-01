@@ -1,6 +1,7 @@
 /**
- * LegioCert Pro - Generador de Certificados PDF v4
- * Soporte para múltiples instalaciones en un mismo certificado
+ * LegioCert Pro - PDF v5
+ * Fix: window.print() no funciona en WebView Android
+ * Solución: descargar como HTML o abrir en Chrome externo
  */
 const PDFModule = (() => {
   const generarCertificado = async (tratamientoId) => {
@@ -9,7 +10,6 @@ const PDFModule = (() => {
     if (!trat) { App.toast('Tratamiento no encontrado', 'error'); return; }
     const cliente = trat.clienteId ? await DB.getById('clientes', trat.clienteId) : null;
 
-    // Cargar todas las instalaciones del tratamiento
     let instalaciones = [];
     if (trat.instalacionIds && Array.isArray(trat.instalacionIds) && trat.instalacionIds.length > 0) {
       for (const instId of trat.instalacionIds) {
@@ -30,12 +30,58 @@ const PDFModule = (() => {
       direccion: await DB.getConfig('cfg_direccion') || '',
       registro: await DB.getConfig('cfg_registro') || '',
     };
-    await DB.add('certificados', { tratamientoId, numero: numeroCert, fecha: new Date().toISOString(), clienteId: trat.clienteId });
+
+    await DB.add('certificados', {
+      tratamientoId, numero: numeroCert,
+      fecha: new Date().toISOString(),
+      clienteId: trat.clienteId,
+    });
+
     const qr = generarQR(`LegioCert:${numeroCert}|${trat.fecha}|${cliente?.nombre||''}`);
-    abrirVentanaPDF(buildHTML(numeroCert, trat, cliente, instalaciones, qr, empresa), numeroCert);
+    const html = buildHTML(numeroCert, trat, cliente, instalaciones, qr, empresa);
+
+    // Detectar si estamos en WebView de Android
+    const isWebView = /wv/.test(navigator.userAgent) || 
+                      (window.Android !== undefined) ||
+                      (/Android/.test(navigator.userAgent) && !/Chrome\/[0-9]+/.test(navigator.userAgent));
+
+    if (isWebView) {
+      // En WebView: descargar como archivo HTML
+      descargarHTML(html, numeroCert);
+    } else {
+      // En navegador normal: abrir ventana e imprimir
+      abrirVentanaPDF(html, numeroCert);
+    }
+
     App.toast(`Certificado ${numeroCert} generado`, 'success');
     App.refreshDashboard();
     App.navigate('historial');
+  };
+
+  const descargarHTML = (html, numero) => {
+    try {
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${numero}.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
+      App.toast('Certificado descargado — ábrelo con Chrome para imprimir', 'info', 5000);
+    } catch(e) {
+      // Fallback: abrir en nueva pestaña
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    }
+  };
+
+  const abrirVentanaPDF = (html, numero) => {
+    const win = window.open('', `cert_${numero}`, 'width=900,height=700,scrollbars=yes');
+    if (win) { win.document.write(html); win.document.close(); }
+    else { descargarHTML(html, numero); }
   };
 
   const siNo = (v) => v==='si'?'✅ Sí':v==='no'?'❌ No':v==='parcialmente'?'⚠️ Parcialmente':v||'—';
@@ -77,8 +123,7 @@ tr:last-child td{border-bottom:none}
 .ea-value{font-weight:600;color:#0A2342}
 .ea-full{grid-column:1/-1}
 .inst-card{background:#f8fafc;border:1px solid #e0e7ef;border-radius:6px;padding:10px 12px;margin-bottom:8px}
-.inst-card h3{font-size:9pt;font-weight:700;color:#0A2342;margin-bottom:6px;display:flex;align-items:center;gap:6px}
-.inst-card table td:first-child{width:38%}
+.inst-card h3{font-size:9pt;font-weight:700;color:#0A2342;margin-bottom:6px}
 .checklist{display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:9pt;margin-top:8px}
 .check-item{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #f0f0f0}
 .check-label{color:#555;font-weight:500;flex:1}
@@ -105,7 +150,7 @@ tr:last-child td{border-bottom:none}
 .texto-legal{font-size:7.5pt;color:#444;line-height:1.6;padding:9px 11px;background:#f0f4f8;border-radius:5px}
 .footer{display:flex;justify-content:space-between;align-items:flex-end;border-top:2px solid #0A2342;margin-top:16px;padding-top:10px}
 .footer .legal{font-size:7pt;color:#666;line-height:1.5}
-.no-print{margin-top:16px;display:flex;gap:12px;justify-content:center}
+.no-print{margin-top:16px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 .btn-p{padding:10px 24px;background:#0A2342;color:white;border:none;border-radius:8px;font-size:11pt;cursor:pointer}
 .btn-c{padding:10px 24px;background:#eee;color:#333;border:none;border-radius:8px;font-size:11pt;cursor:pointer}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.page{padding:8mm}.no-print{display:none!important}}
@@ -150,9 +195,9 @@ tr:last-child td{border-bottom:none}
     <tr><td>Titulación / Acreditación</td><td>${trat.tecnicoTitulacion||'—'}</td></tr>
     ${trat.responsable?`
     <tr><td colspan="2" style="background:#f5f5f5;font-weight:700;font-size:8.5pt;color:#0A2342;border-top:2px solid #dde">Responsable técnico</td></tr>
-    <tr><td>Nombre</td><td>${trat.responsable||'—'}</td></tr>
+    <tr><td>Nombre</td><td>${trat.responsable}</td></tr>
     <tr><td>DNI</td><td>${trat.responsableDni||'—'}</td></tr>
-    <tr><td>Titulación / Acreditación</td><td>${trat.responsableTitulacion||'—'}</td></tr>`:''}
+    <tr><td>Titulación</td><td>${trat.responsableTitulacion||'—'}</td></tr>`:''}
   </table>
 </div>
 
@@ -216,11 +261,8 @@ ${trat.partesInstalacion?`<div class="section"><h2>Partes donde se Realiza el Tr
 </div>
 
 ${tablaMediasHTML}
-
 ${trat.gps?`<div class="section"><h2>Ubicación GPS</h2><table>${gpsHTML}</table></div>`:''}
-
 ${trat.observaciones?`<div class="section"><h2>Observaciones</h2><p style="padding:8px 10px;background:#f8fafc;border-radius:5px;font-size:9pt;line-height:1.6">${trat.observaciones}</p></div>`:''}
-
 ${fotosHTML}
 
 <div class="section"><h2>Responsables y Firmas</h2>${firmasHTML}</div>
@@ -244,38 +286,30 @@ ${fotosHTML}
   const buildInstalaciones = (instalaciones) => {
     if (!instalaciones || instalaciones.length === 0) return '';
     const iconos = {'ACS':'🚿','AFCH':'💧','Depósito':'🪣','Piscina':'🏊','SPA':'♨️','Torre':'🏗️','Humectador':'💨','Fuente':'⛲'};
-    return `
-      <div class="section">
-        <h2>Instalaciones Tratadas (${instalaciones.length})</h2>
-        ${instalaciones.map((inst, idx) => {
-          const iconKey = Object.keys(iconos).find(k=>(inst.tipo||'').includes(k));
-          const icono = iconKey ? iconos[iconKey] : '🏢';
-          return `
-          <div class="inst-card">
-            <h3>${icono} ${inst.nombre || inst.tipo || 'Instalación'} ${instalaciones.length > 1 ? `<span style="font-size:8pt;color:#888;font-weight:400">(${idx+1} de ${instalaciones.length})</span>` : ''}</h3>
-            <table>
-              <tr><td>Tipo</td><td>${inst.tipo||'—'}</td></tr>
-              <tr><td>Volumen</td><td>${inst.volumen?`${inst.volumen.toLocaleString('es-ES')} litros`:'—'}</td></tr>
-              <tr><td>Material</td><td>${inst.material||'—'}</td></tr>
-              <tr><td>Año instalación</td><td>${inst.anio||'—'}</td></tr>
-              <tr><td>Ubicación</td><td>${inst.ubicacion||'—'}</td></tr>
-              ${inst.observaciones?`<tr><td>Observaciones</td><td>${inst.observaciones}</td></tr>`:''}
-            </table>
-          </div>`;
-        }).join('')}
-      </div>`;
+    return `<div class="section">
+      <h2>Instalaciones Tratadas (${instalaciones.length})</h2>
+      ${instalaciones.map((inst,idx)=>{
+        const iconKey=Object.keys(iconos).find(k=>(inst.tipo||'').includes(k));
+        return `<div class="inst-card">
+          <h3>${iconKey?iconos[iconKey]:'🏢'} ${inst.nombre||inst.tipo||'Instalación'}${instalaciones.length>1?` <span style="font-size:8pt;color:#888;font-weight:400">(${idx+1}/${instalaciones.length})</span>`:''}</h3>
+          <table>
+            <tr><td>Tipo</td><td>${inst.tipo||'—'}</td></tr>
+            <tr><td>Volumen</td><td>${inst.volumen?`${inst.volumen.toLocaleString('es-ES')} litros`:'—'}</td></tr>
+            <tr><td>Material</td><td>${inst.material||'—'}</td></tr>
+            <tr><td>Ubicación</td><td>${inst.ubicacion||'—'}</td></tr>
+          </table>
+        </div>`;
+      }).join('')}
+    </div>`;
   };
 
   const buildTablaMedias = (medidas) => {
-    if (!medidas || medidas.length === 0) return '';
-    return `
-      <div class="section">
-        <h2>Anexo I — Medidas de Temperatura y Concentración de Desinfectante</h2>
-        <table class="tabla-medidas">
-          <thead><tr><th>Nº</th><th>Fecha</th><th>Hora</th><th>Elemento</th><th>Ubicación</th><th>Biocida (ppm)</th><th>Tª (°C)</th><th>pH</th></tr></thead>
-          <tbody>${medidas.map((m,i)=>`<tr><td>${i+1}</td><td>${m.fecha||'—'}</td><td>${m.hora||'—'}</td><td>${m.elemento||'—'}</td><td>${m.ubicacion||'—'}</td><td>${m.biocida||'—'}</td><td>${m.temperatura||'—'}</td><td>${m.ph||'—'}</td></tr>`).join('')}</tbody>
-        </table>
-      </div>`;
+    if (!medidas||medidas.length===0) return '';
+    return `<div class="section"><h2>Anexo I — Medidas de Temperatura y Concentración</h2>
+      <table class="tabla-medidas">
+        <thead><tr><th>Nº</th><th>Fecha</th><th>Hora</th><th>Elemento</th><th>Ubicación</th><th>Biocida (ppm)</th><th>Tª (°C)</th><th>pH</th></tr></thead>
+        <tbody>${medidas.map((m,i)=>`<tr><td>${i+1}</td><td>${m.fecha||'—'}</td><td>${m.hora||'—'}</td><td>${m.elemento||'—'}</td><td>${m.ubicacion||'—'}</td><td>${m.biocida||'—'}</td><td>${m.temperatura||'—'}</td><td>${m.ph||'—'}</td></tr>`).join('')}</tbody>
+      </table></div>`;
   };
 
   const buildFotos = (fotos) => {
@@ -287,20 +321,9 @@ ${fotosHTML}
   };
 
   const buildFirmas = (firmaTecnico, firmaResponsable, firmaCliente, tecnico, responsable) => {
-    const esFirmaValida = (f) => f && f.length > 100 && !f.endsWith(',');
-    const mkFirma = (firma, nombre, label) => `
-      <div class="firma-box">
-        ${esFirmaValida(firma)?`<img src="${firma}" alt="firma">`:'<div class="firma-linea">&nbsp;</div>'}
-        <div>
-          <div class="firma-nombre">${label}</div>
-          ${nombre?`<div class="firma-nombre" style="font-weight:400">Fdo. ${nombre}</div>`:''}
-        </div>
-      </div>`;
-    return `<div class="firmas-grid">
-      ${mkFirma(firmaTecnico, tecnico, 'Técnico aplicador')}
-      ${mkFirma(firmaResponsable, responsable, 'Responsable técnico')}
-      ${mkFirma(firmaCliente, '', 'Titular / Responsable instalación')}
-    </div>`;
+    const ok = (f) => f&&f.length>100&&!f.endsWith(',');
+    const mk = (firma, nombre, label) => `<div class="firma-box">${ok(firma)?`<img src="${firma}" alt="firma">`:'<div class="firma-linea">&nbsp;</div>'}<div><div class="firma-nombre">${label}</div>${nombre?`<div class="firma-nombre" style="font-weight:400">Fdo. ${nombre}</div>`:''}</div></div>`;
+    return `<div class="firmas-grid">${mk(firmaTecnico,tecnico,'Técnico aplicador')}${mk(firmaResponsable,responsable,'Responsable técnico')}${mk(firmaCliente,'','Titular / Responsable instalación')}</div>`;
   };
 
   const generarQR = (texto) => {
@@ -311,12 +334,6 @@ ${fotosHTML}
     let hash=0;for(let i=0;i<texto.length;i++){hash=((hash<<5)-hash)+texto.charCodeAt(i);hash|=0;}
     for(let x=2;x<9;x++) for(let y=2;y<9;y++) if((hash+x*7+y*13)%3!==0) ctx.fillRect(x*10,y*10,9,9);
     return canvas.toDataURL('image/png');
-  };
-
-  const abrirVentanaPDF = (html, numero) => {
-    const win=window.open('',`cert_${numero}`,'width=900,height=700,scrollbars=yes');
-    if(win){win.document.write(html);win.document.close();}
-    else{const blob=new Blob([html],{type:'text/html'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.download=`${numero}.html`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);}
   };
 
   return { generarCertificado };
