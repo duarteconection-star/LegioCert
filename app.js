@@ -1,23 +1,33 @@
 /**
- * LegioCert Pro - Núcleo de la Aplicación v2
+ * LegioCert Pro - Núcleo de la Aplicación v2 (Actualizado para WebIntoApp)
  */
 const App = (() => {
   let currentModule = null;
   const MODULES = {
     dashboard:     { module: () => DashboardModule,     label: 'Dashboard',      icon: '📊' },
-    clientes:      { module: () => ClientesModule,       label: 'Clientes',       icon: '👥' },
-    instalaciones: { module: () => InstalacionesModule,  label: 'Instalaciones',  icon: '🏢' },
-    calculadora:   { module: () => CalculadoraModule,    label: 'Calculadora',    icon: '🧮' },
-    legionella:    { module: () => LegionellaModule,     label: 'Tratamiento',    icon: '🧪' },
-    historial:     { module: () => HistorialModule,      label: 'Historial',      icon: '📋' },
-    agenda:        { module: () => AgendaModule,         label: 'Agenda',         icon: '📅' },
-    productos:     { module: () => ProductosModule,      label: 'Productos',      icon: '🧴' },
-    config:        { module: () => ConfigModule,         label: 'Configuración',  icon: '⚙️' },
+    clientes:      { module: () => ClientesModule,      label: 'Clientes',       icon: '👥' },
+    instalaciones: { module: () => InstalacionesModule, label: 'Instalaciones',  icon: '🏢' },
+    calculadora:   { module: () => CalculadoraModule,   label: 'Calculadora',    icon: '🧮' },
+    legionella:    { module: () => LegionellaModule,    label: 'Tratamiento',    icon: '🧪' },
+    historial:     { module: () => HistorialModule,     label: 'Historial',      icon: '📋' },
+    agenda:        { module: () => AgendaModule,        label: 'Agenda',         icon: '📅' },
+    productos:     { module: () => ProductosModule,     label: 'Productos',      icon: '🧴' },
+    config:        { module: () => ConfigModule,        label: 'Configuración',  icon: '⚙️' },
   };
   const NAV = ['dashboard','clientes','instalaciones','calculadora','legionella','historial','agenda','productos','config'];
 
   const init = async () => {
     try {
+      // Limpiar cachés del navegador/SW al iniciar para forzar la carga de la nueva versión en la APK
+      if ('caches' in window) {
+        try {
+          const names = await caches.keys();
+          await Promise.all(names.map(name => caches.delete(name)));
+        } catch(e) {
+          console.warn('No se pudo limpiar la caché:', e);
+        }
+      }
+
       await DB.init();
       buildLayout();
       await navigate('dashboard');
